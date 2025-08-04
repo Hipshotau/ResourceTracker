@@ -601,48 +601,49 @@ export function ResourceTable({ userId }: ResourceTableProps) {
   }
 
   // Admin function to create new resource
-  const createNewResource = async () => {
-    if (!isResourceAdmin) return
-    
-    if (!createResourceForm.name || !createResourceForm.category) {
-      alert('Name and category are required')
-      return
-    }
-    
-    setSaving(true)
-    try {
-      const response = await fetch(`/api/resources/${resourceId}`, {
-        method: 'PUT',
-        cache: 'no-store',
-        headers: {
-          'Content-Type': 'application/json',
-          'Cache-Control': 'no-cache',
-        },
-        body: JSON.stringify(createResourceForm),
-      })
+const createNewResource = async () => {
+  if (!isResourceAdmin) return
 
-      if (response.ok) {
-        const newResource = await response.json()
-        setResources(prev => [...prev, newResource])
-        setShowCreateForm(false)
-        setCreateResourceForm({
-          name: '',
-          category: 'Raw',
-          description: '',
-          imageUrl: '',
-          quantity: 0,
-          targetQuantity: 0,
-          multiplier: 1.0
-        })
-      } else {
-        console.error('Failed to create resource')
-      }
-    } catch (error) {
-      console.error('Error creating resource:', error)
-    } finally {
-      setSaving(false)
-    }
+  if (!createResourceForm.name || !createResourceForm.category) {
+    alert('Name and category are required')
+    return
   }
+
+  setSaving(true)
+  try {
+    const response = await fetch('/api/resources', {
+      method: 'POST',
+      cache: 'no-store',
+      headers: {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-cache',
+      },
+      body: JSON.stringify(createResourceForm),
+    })
+
+    if (response.ok) {
+      const newResource = await response.json()
+      setResources(prev => [...prev, newResource])
+      setShowCreateForm(false)
+      setCreateResourceForm({
+        name: '',
+        category: 'Raw',
+        description: '',
+        imageUrl: '',
+        quantity: 0,
+        targetQuantity: 0,
+        multiplier: 1.0,
+      })
+    } else {
+      console.error('Failed to create resource')
+    }
+  } catch (error) {
+    console.error('Error creating resource:', error)
+  } finally {
+    setSaving(false)
+  }
+}
+
 
   // Admin function to delete resource
   const deleteResource = async (resourceId: string) => {
