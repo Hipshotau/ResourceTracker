@@ -743,63 +743,17 @@ export function ResourceTable({ userId }: ResourceTableProps) {
   }
 
   const saveAllEdited = async () => {
-    setSaving(true)
-    try {
-      const resourceUpdates = Array.from(editedResources.entries()).map(([resourceId, updateInfo]) => {
-        const resource = resources.find(r => r.id === resourceId)
-        return {
-          id: resourceId,
-          quantity: resource?.quantity || 0,
-          updateType: updateInfo.updateType,
-          value: updateInfo.value,
-          reason: updateInfo.reason,
-        }
-      })
-
-      const response = await fetch('/api/resources', {
-        method: 'PUT',
-        cache: 'no-store',
-        headers: {
-          'Content-Type': 'application/json',
-          'Cache-Control': 'no-cache',
-        },
-        body: JSON.stringify({
-          resourceUpdates,
-        }),
-      })
-
-      if (response.ok) {
-        const responseData = await response.json()
-        setResources(responseData.resources.map((resource: any) => ({
-          ...resource,
-          updatedAt: new Date(resource.updatedAt).toISOString(),
-          createdAt: new Date(resource.createdAt).toISOString(),
-        })))
-        
-        // Show congratulations popup if points were earned
-        if (responseData.totalPointsEarned > 0) {
-          const currentUserId = session ? getUserIdentifier(session) : userId
-          setCongratulationsState({
-            isVisible: true,
-            pointsEarned: responseData.totalPointsEarned,
-            resourceName: `${resourceUpdates.length} resources`,
-            actionType: 'ADD',
-            quantityChanged: resourceUpdates.length
-          })
-        }
-        
-        setEditedResources(new Map())
-      } else {
-        console.error('Failed to save resources')
-      }
-      
-    } catch (error) {
-      console.error('Error saving resources:', error)
-    } finally {
-      setSaving(false)
+  setSaving(true)
+  try {
+    for (const [resourceId] of editedResources.entries()) {
+      await saveResource(resourceId)
     }
+  } catch (err) {
+    console.error('Error saving all edited resources:', err)
+  } finally {
+    setSaving(false)
   }
-
+}
   // Fetch leaderboard data
   const fetchLeaderboard = async () => {
     try {
