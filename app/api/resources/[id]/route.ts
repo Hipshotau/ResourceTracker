@@ -22,7 +22,6 @@ const calculateResourceStatus = (quantity: number, targetQuantity: number | null
 // Import role-checking functions from discord-roles.ts
 import { hasTargetEditAccess } from '@/lib/discord-roles'
 
-// PUT /api/resources/[id] - Update single resource
 export async function PUT(
   request: NextRequest,
   { params }: { params: { id: string } }
@@ -37,103 +36,64 @@ export async function PUT(
     const body = await request.json()
     const userId = getUserIdentifier(session)
 
-    // Fetch current resource
-    const currentResource = await db.select().from(resources).where(eq(resources.id, params.id))
-    if (currentResource.length === 0) {
+    const current = await db.select().from(resources).where(eq(resources.id, params.id))
+    if (current.length === 0) {
       return NextResponse.json({ error: 'Resource not found' }, { status: 404 })
     }
-    const resource = currentResource[0]
 
-    // 🟡 Handle Metadata Update
-    if (
-      body.name !== undefined ||
-      body.category !== undefined ||
-      body.description !== undefined ||
-      body.imageUrl !== undefined ||
-      body.multiplier !== undefined
-    ) {
+    const existing = current[0]
+
+    // Handle quantity updates
+    if ('quantity' in body) {
+      const { quantity, updateType = 'absolute', value, reason } = body
+      const previousQuantity = existing.quantity
+      const changeAmount = updateType === 'relative' ? value : quantity - previousQuantity
+
       await db.update(resources)
         .set({
-          ...(body.name !== undefined && { name: body.name }),
-          ...(body.category !== undefined && { category: body.category }),
-          ...(body.description !== undefined && { description: body.description }),
-          ...(body.imageUrl !== undefined && { imageUrl: body.imageUrl }),
-          ...(body.multiplier !== undefined && { multiplier: body.multiplier }),
+          quantity,
           lastUpdatedBy: userId,
           updatedAt: new Date(),
         })
         .where(eq(resources.id, params.id))
 
-      const updatedResource = await db.select().from(resources).where(eq(resources.id, params.id))
-      return NextResponse.json({ resource: updatedResource[0] })
+      await db.insert(resourceHistory).values({
+        id: nanoid(),
+        resourceId: params.id,
+        previousQuantity,
+        newQuantity: quantity,
+        changeAmount,
+        changeType: updateType,
+        updatedBy: userId,
+        reason,
+        createdAt: new Date(),
+      })
+
+      return NextResponse.json({ message: 'Quantity updated' })
     }
 
-    // 🟢 Handle Quantity Update
-    const { quantity, updateType = 'absolute', value, reason } = body
-    const previousQuantity = resource.quantity
-    const changeAmount = updateType === 'relative' ? value : quantity - previousQuantity
+    // Handle metadata update
+    const { name, imageUrl, category, description, targetQuantity, multiplier } = body
 
     await db.update(resources)
       .set({
-        quantity: quantity,
-        lastUpdatedBy: userId,
+        ...(name && { name }),
+        ...(imageUrl && { imageUrl }),
+        ...(category && { category }),
+        ...(description && { description }),
+        ...(targetQuantity !== undefined && { targetQuantity }),
+        ...(multiplier !== undefined && { multiplier }),
         updatedAt: new Date(),
       })
       .where(eq(resources.id, params.id))
 
-    await db.insert(resourceHistory).values({
-      id: nanoid(),
-      resourceId: params.id,
-      previousQuantity,
-      newQuantity: quantity,
-      changeAmount,
-      changeType: updateType || 'absolute',
-      updatedBy: userId,
-      reason,
-      createdAt: new Date(),
-    })
-
-    let pointsCalculation = null
-    if (changeAmount !== 0) {
-      const actionType: 'ADD' | 'SET' | 'REMOVE' =
-        updateType === 'absolute' ? 'SET' :
-        changeAmount > 0 ? 'ADD' : 'REMOVE'
-
-      const resourceStatus = calculateResourceStatus(resource.quantity, resource.targetQuantity)
-
-      pointsCalculation = await awardPoints(
-        userId,
-        params.id,
-        actionType,
-        Math.abs(changeAmount),
-        {
-          name: resource.name,
-          category: resource.category || 'Other',
-          status: resourceStatus,
-          multiplier: resource.multiplier || 1.0,
-        }
-      )
-    }
-
-    const updatedResource = await db.select().from(resources).where(eq(resources.id, params.id))
-
-    return NextResponse.json({
-      resource: updatedResource[0],
-      pointsEarned: pointsCalculation?.finalPoints || 0,
-      pointsCalculation
-    }, {
-      headers: {
-        'Cache-Control': 'no-cache, no-store, max-age=0, must-revalidate',
-        'Pragma': 'no-cache',
-        'Expires': '0'
-      }
-    })
-
+    return NextResponse.json({ message: 'Metadata updated' })
   } catch (error) {
     console.error('Error updating resource:', error)
     return NextResponse.json({ error: 'Failed to update resource' }, { status: 500 })
   }
 }
+
 
 
 // DELETE /api/resources/[id] - Delete resource and all its history (admin only)
