@@ -612,7 +612,7 @@ export function ResourceTable({ userId }: ResourceTableProps) {
     setSaving(true)
     try {
       const response = await fetch(`/api/resources/${resourceId}`, {
-        method: 'POST',
+        method: 'PUT',
         cache: 'no-store',
         headers: {
           'Content-Type': 'application/json',
