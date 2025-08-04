@@ -1,59 +1,69 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions, getUserIdentifier } from '@/lib/auth'
-import { db } from '@/lib/db'
-import { resources, resourceHistory } from '@/lib/db'
+import { db, resources, resourceHistory } from '@/lib/db'
 import { eq } from 'drizzle-orm'
 import { nanoid } from 'nanoid'
-import { hasResourceAccess, hasResourceAdminAccess } from '@/lib/discord-roles'
+import {
+  hasResourceAccess,
+  hasResourceAdminAccess,
+  hasTargetEditAccess
+} from '@/lib/discord-roles'
 import { awardPoints } from '@/lib/leaderboard'
 
-// Calculate status based on quantity vs target
-const calculateResourceStatus = (quantity: number, targetQuantity: number | null): 'above_target' | 'at_target' | 'below_target' | 'critical' => {
+// Status calculation logic
+const calculateResourceStatus = (
+  quantity: number,
+  targetQuantity: number | null
+): 'above_target' | 'at_target' | 'below_target' | 'critical' => {
   if (!targetQuantity || targetQuantity <= 0) return 'at_target'
-
   const percentage = (quantity / targetQuantity) * 100
-  if (percentage >= 150) return 'above_target'    // Purple - well above target
-  if (percentage >= 100) return 'at_target'       // Green - at or above target
-  if (percentage >= 50) return 'below_target'     // Orange - below target but not critical
-  return 'critical'                               // Red - very much below target
+  if (percentage >= 150) return 'above_target'
+  if (percentage >= 100) return 'at_target'
+  if (percentage >= 50) return 'below_target'
+  return 'critical'
 }
 
-// Import role-checking functions from discord-roles.ts
-import { hasTargetEditAccess } from '@/lib/discord-roles'
-
+// PUT /api/resources/[id]
 export async function PUT(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   const session = await getServerSession(authOptions)
-
   if (!session || !hasResourceAccess(session.user.roles)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  const body = await request.json()
+  console.log('[PUT] Resource update body:', body)
+  console.log('[PUT] Target ID:', params.id)
+
+  const resourceQuery = await db
+    .select()
+    .from(resources)
+    .where(eq(resources.id, params.id))
+
+  if (resourceQuery.length === 0) {
+    return NextResponse.json({ error: 'Resource not found' }, { status: 404 })
+  }
+
+  const existing = resourceQuery[0]
+  const userId = getUserIdentifier(session)
+
   try {
-    const body = await request.json()
-    const userId = getUserIdentifier(session)
-
-    const current = await db.select().from(resources).where(eq(resources.id, params.id))
-    if (current.length === 0) {
-      return NextResponse.json({ error: 'Resource not found' }, { status: 404 })
-    }
-
-    const existing = current[0]
-
-    // Handle quantity updates
+    // Quantity change (with history + points)
     if ('quantity' in body) {
       const { quantity, updateType = 'absolute', value, reason } = body
       const previousQuantity = existing.quantity
-      const changeAmount = updateType === 'relative' ? value : quantity - previousQuantity
+      const changeAmount =
+        updateType === 'relative' ? value : quantity - previousQuantity
 
-      await db.update(resources)
+      await db
+        .update(resources)
         .set({
           quantity,
           lastUpdatedBy: userId,
-          updatedAt: new Date(),
+          updatedAt: new Date()
         })
         .where(eq(resources.id, params.id))
 
@@ -66,25 +76,28 @@ export async function PUT(
         changeType: updateType,
         updatedBy: userId,
         reason,
-        createdAt: new Date(),
+        createdAt: new Date()
       })
 
       return NextResponse.json({ message: 'Quantity updated' })
     }
 
-    // Handle metadata update
-    const { name, imageUrl, category, description, targetQuantity, multiplier } = body
+    // Metadata change
+    const updates: Record<string, any> = {
+      updatedAt: new Date()
+    }
 
-    await db.update(resources)
-      .set({
-        ...(name && { name }),
-        ...(imageUrl && { imageUrl }),
-        ...(category && { category }),
-        ...(description && { description }),
-        ...(targetQuantity !== undefined && { targetQuantity }),
-        ...(multiplier !== undefined && { multiplier }),
-        updatedAt: new Date(),
-      })
+    // Apply only provided metadata fields (including falsy values like 0 or "")
+    if ('name' in body) updates.name = body.name
+    if ('imageUrl' in body) updates.imageUrl = body.imageUrl
+    if ('category' in body) updates.category = body.category
+    if ('description' in body) updates.description = body.description
+    if ('targetQuantity' in body) updates.targetQuantity = body.targetQuantity
+    if ('multiplier' in body) updates.multiplier = body.multiplier
+
+    await db
+      .update(resources)
+      .set(updates)
       .where(eq(resources.id, params.id))
 
     return NextResponse.json({ message: 'Metadata updated' })
@@ -94,30 +107,27 @@ export async function PUT(
   }
 }
 
-
-
-// DELETE /api/resources/[id] - Delete resource and all its history (admin only)
+// DELETE /api/resources/[id]
 export async function DELETE(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   const session = await getServerSession(authOptions)
-  
   if (!session || !hasResourceAdminAccess(session.user.roles)) {
     return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
   }
 
   try {
-    // Check if resource exists
-    const resource = await db.select().from(resources).where(eq(resources.id, params.id))
-    if (resource.length === 0) {
+    const existing = await db
+      .select()
+      .from(resources)
+      .where(eq(resources.id, params.id))
+
+    if (existing.length === 0) {
       return NextResponse.json({ error: 'Resource not found' }, { status: 404 })
     }
 
-    // Delete all history entries for this resource first (due to foreign key constraint)
     await db.delete(resourceHistory).where(eq(resourceHistory.resourceId, params.id))
-    
-    // Delete the resource
     await db.delete(resources).where(eq(resources.id, params.id))
 
     return NextResponse.json({ message: 'Resource and its history deleted successfully' }, {
@@ -131,4 +141,4 @@ export async function DELETE(
     console.error('Error deleting resource:', error)
     return NextResponse.json({ error: 'Failed to delete resource' }, { status: 500 })
   }
-} 
+}
