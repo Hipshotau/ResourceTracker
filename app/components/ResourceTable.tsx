@@ -574,11 +574,10 @@ export function ResourceTable({ userId }: ResourceTableProps) {
           'Cache-Control': 'no-cache',
         },
         body: JSON.stringify({
-          resourceMetadata: {
-            id: resourceId,
-            ...editResourceForm
-          }
-        }),
+          id: resourceId,
+          ...editResourceForm
+        }
+        ),
       })
 
       if (response.ok) {
