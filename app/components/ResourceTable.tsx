@@ -563,7 +563,11 @@ export function ResourceTable({ userId }: ResourceTableProps) {
   // Admin function to save resource metadata changes
   const saveResourceMetadata = async (resourceId: string) => {
     if (!isResourceAdmin) return
-    
+    console.log('Sending metadata update:', {
+    id: resourceId,
+    ...editResourceForm
+    })
+
     setSaving(true)
     try {
       const response = await fetch(`/api/resources/${resourceId}`, {
