@@ -100,7 +100,13 @@ export async function PUT(
       .set(updates)
       .where(eq(resources.id, params.id))
 
-    return NextResponse.json({ message: 'Metadata updated' })
+    const updatedResource = await db
+      .select()
+      .from(resources)
+      .where(eq(resources.id, params.id))
+
+    return NextResponse.json(updatedResource[0])
+
   } catch (error) {
     console.error('Error updating resource:', error)
     return NextResponse.json({ error: 'Failed to update resource' }, { status: 500 })
